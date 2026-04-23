@@ -38,13 +38,17 @@ button {
 .chart-container {
     position: relative;
     width: 100%;
-    height: 360px;
+    height: 340px;
     margin-top: 20px;
 }
 
 #distributionChart {
     width: 100% !important;
     height: 100% !important;
+}
+
+#chartView {
+    min-width: 220px;
 }
 
 #market p {
