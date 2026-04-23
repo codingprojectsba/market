@@ -1,12 +1,31 @@
-const topics = [
-    "Compact Operators",
-    "Spectral Theorem",
-    "Fourier Series",
-    "Lagrange Multipliers",
-    "Heat Equation"
-];
+let topics = [];
 
 let predictions = [];
+
+function loadTopics() {
+    try {
+        const data = localStorage.getItem("topics");
+        if (data) {
+            topics = JSON.parse(data);
+        } else {
+            // default topics (first time)
+            topics = [
+                "Compact Operators",
+                "Spectral Theorem",
+                "Fourier Series",
+                "Lagrange Multipliers",
+                "Heat Equation"
+            ];
+        }
+    } catch (e) {
+        console.error("Error loading topics:", e);
+        topics = [];
+    }
+}
+
+function saveTopics() {
+    localStorage.setItem("topics", JSON.stringify(topics));
+}
 
 // Load from browser storage
 function loadPredictions() {
@@ -26,24 +45,40 @@ function savePredictions() {
     localStorage.setItem("predictions", JSON.stringify(predictions));
 }
 
-// Initialize UI
-function init() {
-    loadPredictions();
-    
+function renderTopicsAndSelect() {
     const topicDiv = document.getElementById("topics");
     const select = document.getElementById("topicSelect");
 
+    topicDiv.innerHTML = "";
+    select.innerHTML = "";
+
     topics.forEach(t => {
+        // topic list
         const p = document.createElement("p");
         p.textContent = t;
+
+        const btn = document.createElement("button");
+        btn.textContent = "Delete";
+        btn.style.marginLeft = "10px";
+        btn.onclick = () => deleteTopic(t);
+
+        p.appendChild(btn);
         topicDiv.appendChild(p);
 
+        // dropdown
         const option = document.createElement("option");
         option.value = t;
         option.textContent = t;
         select.appendChild(option);
     });
+}
 
+// Initialize UI
+function init() {
+    loadTopics();
+    loadPredictions();
+
+    renderTopicsAndSelect(); // 👈 NEW
     updateMarket();
 }
 
@@ -62,10 +97,14 @@ function submitPrediction() {
     savePredictions();
 
     updateMarket();
+    
+    document.getElementById("probInput").value = "";
+    document.getElementById("stakeInput").value = "10";
 }
 
 function updateMarket() {
     const marketDiv = document.getElementById("market");
+
     marketDiv.innerHTML = "";
 
     topics.forEach(t => {
@@ -81,9 +120,9 @@ function updateMarket() {
 
         let marketProb = preds.length > 0 ? weightedSum / totalWeight : 0.5;
 
-        const p = document.createElement("p");
-        p.textContent = `${t}: ${marketProb.toFixed(2)} (n=${preds.length})`;
-        marketDiv.appendChild(p);
+        const mp = document.createElement("p");
+        mp.textContent = `${t}: ${marketProb.toFixed(2)} (n=${preds.length})`;
+        marketDiv.appendChild(mp);
     });
 }
 
@@ -93,6 +132,40 @@ function resetMarket() {
 
     predictions = [];
     localStorage.removeItem("predictions");
+
+    renderTopicsAndSelect(); // optional but consistent
+    updateMarket();
+}
+
+function addTopic() {
+    const input = document.getElementById("newTopic");
+    const value = input.value.trim();
+
+    if (!value) return;
+
+    if (topics.includes(value)) {
+        alert("Topic already exists");
+        return;
+    }
+
+    topics.push(value);
+    saveTopics();
+    
+    renderTopicsAndSelect();
+    updateMarket();
+
+    input.value = "";
+}
+
+function deleteTopic(topic) {
+    topics = topics.filter(t => t !== topic);
+    saveTopics();
+
+    // also remove related predictions
+    predictions = predictions.filter(p => p.topic !== topic);
+    savePredictions();
+    
+    renderTopicsAndSelect();
     updateMarket();
 }
 
