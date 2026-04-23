@@ -1,48 +1,177 @@
-let topics = [];
+const TOPICS_STORAGE_KEY = "topics";
+const PREDICTIONS_STORAGE_KEY = "distributionPredictions";
 
+const DEFAULT_TOPICS = [
+    "Compact Operators",
+    "Spectral Theorem",
+    "Fourier Series",
+    "Lagrange Multipliers",
+    "Heat Equation"
+];
+
+const X_MIN = 0;
+const X_MAX = 10;
+const GRID_SIZE = 201;
+
+let topics = [];
 let predictions = [];
+let distributionChart = null;
 
 function loadTopics() {
     try {
-        const data = localStorage.getItem("topics");
-        if (data) {
-            topics = JSON.parse(data);
+        const data = localStorage.getItem(TOPICS_STORAGE_KEY);
+
+        if (data === null) {
+            topics = [...DEFAULT_TOPICS];
         } else {
-            // default topics (first time)
-            topics = [
-                "Compact Operators",
-                "Spectral Theorem",
-                "Fourier Series",
-                "Lagrange Multipliers",
-                "Heat Equation"
-            ];
+            const parsed = JSON.parse(data);
+            topics = Array.isArray(parsed) ? parsed : [...DEFAULT_TOPICS];
         }
     } catch (e) {
         console.error("Error loading topics:", e);
-        topics = [];
+        topics = [...DEFAULT_TOPICS];
     }
 }
 
 function saveTopics() {
-    localStorage.setItem("topics", JSON.stringify(topics));
+    localStorage.setItem(TOPICS_STORAGE_KEY, JSON.stringify(topics));
 }
 
-// Load from browser storage
 function loadPredictions() {
     try {
-        const data = localStorage.getItem("predictions");
-        if (data) {
-            predictions = JSON.parse(data);
-        }
+        const data = localStorage.getItem(PREDICTIONS_STORAGE_KEY);
+        predictions = data ? JSON.parse(data) : [];
     } catch (e) {
         console.error("Error loading predictions:", e);
         predictions = [];
     }
 }
 
-// Save to browser storage
 function savePredictions() {
-    localStorage.setItem("predictions", JSON.stringify(predictions));
+    localStorage.setItem(PREDICTIONS_STORAGE_KEY, JSON.stringify(predictions));
+}
+
+function getGrid() {
+    const xs = [];
+
+    for (let i = 0; i < GRID_SIZE; i++) {
+        const x = X_MIN + (i / (GRID_SIZE - 1)) * (X_MAX - X_MIN);
+        xs.push(x);
+    }
+
+    return xs;
+}
+
+function normalPDF(x, mu, sigma) {
+    return Math.exp(-0.5 * ((x - mu) / sigma) ** 2);
+}
+
+function normalize(values) {
+    const total = values.reduce((a, b) => a + b, 0);
+
+    if (total === 0) {
+        return values;
+    }
+
+    return values.map(v => v / total);
+}
+
+function distributionFromPrediction(prediction) {
+    const xs = getGrid();
+    const ys = xs.map(x => normalPDF(x, prediction.mu, prediction.sigma));
+
+    return normalize(ys);
+}
+
+function aggregateDistribution(topicPredictions) {
+    if (topicPredictions.length === 0) {
+        return null;
+    }
+
+    const result = new Array(GRID_SIZE).fill(0);
+    let totalWeight = 0;
+
+    topicPredictions.forEach(prediction => {
+        const dist = distributionFromPrediction(prediction);
+        const weight = prediction.stake;
+
+        totalWeight += weight;
+
+        dist.forEach((value, i) => {
+            result[i] += value * weight;
+        });
+    });
+
+    if (totalWeight === 0) {
+        return null;
+    }
+
+    return result.map(v => v / totalWeight);
+}
+
+function getQuantile(distribution, q) {
+    const xs = getGrid();
+    let cumulative = 0;
+
+    for (let i = 0; i < distribution.length; i++) {
+        cumulative += distribution[i];
+
+        if (cumulative >= q) {
+            return xs[i];
+        }
+    }
+
+    return xs[xs.length - 1];
+}
+
+function getMean(distribution) {
+    const xs = getGrid();
+
+    return distribution.reduce((sum, value, i) => {
+        return sum + value * xs[i];
+    }, 0);
+}
+
+function buildPredictionFromInputs() {
+    const topic = document.getElementById("topicSelect").value;
+    const lower = parseFloat(document.getElementById("lowerInput").value);
+    const median = parseFloat(document.getElementById("medianInput").value);
+    const upper = parseFloat(document.getElementById("upperInput").value);
+    const stake = parseFloat(document.getElementById("stakeInput").value);
+
+    if (!topic) {
+        throw new Error("Please add or select a question first.");
+    }
+
+    if ([lower, median, upper, stake].some(Number.isNaN)) {
+        throw new Error("Please fill in lower 25%, median, upper 75%, and stake.");
+    }
+
+    if (lower < X_MIN || upper > X_MAX || median < X_MIN || median > X_MAX) {
+        throw new Error(`Values must be between ${X_MIN} and ${X_MAX}.`);
+    }
+
+    if (!(lower < median && median < upper)) {
+        throw new Error("You need lower 25% < median < upper 75%.");
+    }
+
+    if (stake <= 0) {
+        throw new Error("Stake must be positive.");
+    }
+
+    const mu = median;
+    const sigma = Math.max((upper - lower) / 1.349, 0.05);
+
+    return {
+        topic,
+        lower,
+        median,
+        upper,
+        mu,
+        sigma,
+        stake,
+        createdAt: Date.now()
+    };
 }
 
 function renderTopicsAndSelect() {
@@ -53,7 +182,6 @@ function renderTopicsAndSelect() {
     select.innerHTML = "";
 
     topics.forEach(t => {
-        // topic list
         const p = document.createElement("p");
         p.textContent = t;
 
@@ -65,7 +193,6 @@ function renderTopicsAndSelect() {
         p.appendChild(btn);
         topicDiv.appendChild(p);
 
-        // dropdown
         const option = document.createElement("option");
         option.value = t;
         option.textContent = t;
@@ -73,32 +200,110 @@ function renderTopicsAndSelect() {
     });
 }
 
-// Initialize UI
+function initChart() {
+    const ctx = document.getElementById("distributionChart");
+
+    distributionChart = new Chart(ctx, {
+        type: "line",
+        data: {
+            labels: getGrid().map(x => x.toFixed(2)),
+            datasets: [
+                {
+                    label: "Market distribution",
+                    data: [],
+                    tension: 0.25,
+                    fill: false
+                },
+                {
+                    label: "Your draft prediction",
+                    data: [],
+                    tension: 0.25,
+                    fill: false,
+                    borderDash: [5, 5]
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: {
+                tooltip: {
+                    callbacks: {
+                        title: items => `x = ${items[0].label}`
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: {
+                        display: true,
+                        text: "Outcome"
+                    }
+                },
+                y: {
+                    title: {
+                        display: true,
+                        text: "Probability density"
+                    },
+                    beginAtZero: true
+                }
+            }
+        }
+    });
+}
+
+function updateChart() {
+    if (!distributionChart) return;
+
+    const selectedTopic = document.getElementById("topicSelect").value;
+    const topicPredictions = predictions.filter(p => p.topic === selectedTopic);
+    const marketDistribution = aggregateDistribution(topicPredictions);
+
+    distributionChart.data.datasets[0].data = marketDistribution ?? [];
+
+    try {
+        const draftPrediction = buildPredictionFromInputs();
+        const draftDistribution = distributionFromPrediction(draftPrediction);
+        distributionChart.data.datasets[1].data = draftDistribution;
+    } catch {
+        distributionChart.data.datasets[1].data = [];
+    }
+
+    distributionChart.update();
+}
+
 function init() {
     loadTopics();
     loadPredictions();
 
-    renderTopicsAndSelect(); // 👈 NEW
+    renderTopicsAndSelect();
+    initChart();
     updateMarket();
+
+    document.getElementById("topicSelect").addEventListener("change", updateMarket);
+
+    ["lowerInput", "medianInput", "upperInput"].forEach(id => {
+        document.getElementById(id).addEventListener("input", updateChart);
+    });
 }
 
 function submitPrediction() {
-    const topic = document.getElementById("topicSelect").value;
-    const prob = parseFloat(document.getElementById("probInput").value);
-    const stake = parseFloat(document.getElementById("stakeInput").value);
+    let prediction;
 
-    if (isNaN(prob) || prob < 0 || prob > 1) {
-        alert("Probability must be between 0 and 1");
+    try {
+        prediction = buildPredictionFromInputs();
+    } catch (e) {
+        alert(e.message);
         return;
     }
 
-    predictions.push({ topic, prob, stake });
-
+    predictions.push(prediction);
     savePredictions();
 
     updateMarket();
-    
-    document.getElementById("probInput").value = "";
+
+    document.getElementById("lowerInput").value = "";
+    document.getElementById("medianInput").value = "";
+    document.getElementById("upperInput").value = "";
     document.getElementById("stakeInput").value = "10";
 }
 
@@ -108,33 +313,51 @@ function updateMarket() {
     marketDiv.innerHTML = "";
 
     topics.forEach(t => {
-        const preds = predictions.filter(p => p.topic === t);
+        const topicPredictions = predictions.filter(p => p.topic === t);
+        const distribution = aggregateDistribution(topicPredictions);
 
-        let totalWeight = 0;
-        let weightedSum = 0;
+        const p = document.createElement("p");
 
-        preds.forEach(p => {
-            totalWeight += p.stake;
-            weightedSum += p.prob * p.stake;
-        });
+        if (!distribution) {
+            p.textContent = `${t}: no predictions yet`;
+        } else {
+            const mean = getMean(distribution);
+            const q25 = getQuantile(distribution, 0.25);
+            const q50 = getQuantile(distribution, 0.50);
+            const q75 = getQuantile(distribution, 0.75);
 
-        let marketProb = preds.length > 0 ? weightedSum / totalWeight : 0.5;
+            p.textContent =
+                `${t}: mean=${mean.toFixed(2)}, ` +
+                `lower 25%=${q25.toFixed(2)}, ` +
+                `median=${q50.toFixed(2)}, ` +
+                `upper 75%=${q75.toFixed(2)} ` +
+                `(n=${topicPredictions.length})`;
+        }
 
-        const mp = document.createElement("p");
-        mp.textContent = `${t}: ${marketProb.toFixed(2)} (n=${preds.length})`;
-        marketDiv.appendChild(mp);
+        marketDiv.appendChild(p);
     });
+
+    updateChart();
 }
 
 function resetMarket() {
-    const confirmReset = confirm("Are you sure you want to reset the market?");
+    const confirmReset = confirm("Are you sure you want to reset all predictions?");
     if (!confirmReset) return;
 
     predictions = [];
-    localStorage.removeItem("predictions");
+    localStorage.removeItem(PREDICTIONS_STORAGE_KEY);
 
-    renderTopicsAndSelect(); // optional but consistent
     updateMarket();
+}
+
+function resetAll() {
+    const confirmReset = confirm("Reset EVERYTHING, including questions and predictions?");
+    if (!confirmReset) return;
+
+    localStorage.removeItem(TOPICS_STORAGE_KEY);
+    localStorage.removeItem(PREDICTIONS_STORAGE_KEY);
+
+    location.reload();
 }
 
 function addTopic() {
@@ -144,13 +367,13 @@ function addTopic() {
     if (!value) return;
 
     if (topics.includes(value)) {
-        alert("Topic already exists");
+        alert("Question already exists");
         return;
     }
 
     topics.push(value);
     saveTopics();
-    
+
     renderTopicsAndSelect();
     updateMarket();
 
@@ -161,10 +384,9 @@ function deleteTopic(topic) {
     topics = topics.filter(t => t !== topic);
     saveTopics();
 
-    // also remove related predictions
     predictions = predictions.filter(p => p.topic !== topic);
     savePredictions();
-    
+
     renderTopicsAndSelect();
     updateMarket();
 }
