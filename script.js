@@ -209,13 +209,26 @@ function initChart() {
             labels: getGrid().map(x => x.toFixed(2)),
             datasets: []
         },
+        
         options: {
             responsive: true,
             maintainAspectRatio: false,
+            interaction: {
+                mode: "index",
+                intersect: false
+            },
             plugins: {
+                legend: {
+                    position: "top",
+                    labels: {
+                        usePointStyle: true,
+                        boxWidth: 10,
+                        padding: 16
+                    }
+                },
                 tooltip: {
                     callbacks: {
-                        title: items => `x = ${items[0].label}`
+                        title: items => `Outcome = ${items[0].label}`
                     }
                 }
             },
@@ -224,6 +237,12 @@ function initChart() {
                     title: {
                         display: true,
                         text: "Outcome"
+                    },
+                    ticks: {
+                        maxTicksLimit: 12
+                    },
+                    grid: {
+                        color: "rgba(0, 0, 0, 0.06)"
                     }
                 },
                 y: {
@@ -231,7 +250,13 @@ function initChart() {
                         display: true,
                         text: "Probability density"
                     },
-                    beginAtZero: true
+                    beginAtZero: true,
+                    ticks: {
+                        maxTicksLimit: 6
+                    },
+                    grid: {
+                        color: "rgba(0, 0, 0, 0.06)"
+                    }
                 }
             }
         }
@@ -263,9 +288,12 @@ function updateChart() {
         datasets.push({
             label: "Market distribution",
             data: marketDistribution,
-            tension: 0.25,
-            fill: false,
-            borderWidth: 3
+            tension: 0.35,
+            fill: true,
+            borderWidth: 3,
+            pointRadius: 0,
+            backgroundColor: "rgba(54, 162, 235, 0.15)",
+            borderColor: "rgba(54, 162, 235, 1)"
         });
     }
 
@@ -276,10 +304,12 @@ function updateChart() {
             datasets.push({
                 label: "Latest prediction",
                 data: distributionFromPrediction(latestPrediction),
-                tension: 0.25,
+                tension: 0.35,
                 fill: false,
-                borderDash: [5, 5],
-                borderWidth: 2
+                borderDash: [6, 4],
+                borderWidth: 2,
+                pointRadius: 0,
+                borderColor: "rgba(255, 99, 132, 1)"
             });
         }
     }
@@ -289,9 +319,11 @@ function updateChart() {
             datasets.push({
                 label: `Prediction ${index + 1}`,
                 data: distributionFromPrediction(prediction),
-                tension: 0.25,
+                tension: 0.35,
                 fill: false,
-                borderWidth: 1
+                borderWidth: 1.5,
+                pointRadius: 0,
+                borderColor: `hsla(${(index * 70) % 360}, 75%, 55%, 0.55)`
             });
         });
     }
