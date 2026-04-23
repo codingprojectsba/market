@@ -207,24 +207,11 @@ function initChart() {
         type: "line",
         data: {
             labels: getGrid().map(x => x.toFixed(2)),
-            datasets: [
-                {
-                    label: "Market distribution",
-                    data: [],
-                    tension: 0.25,
-                    fill: false
-                },
-                {
-                    label: "Your draft prediction",
-                    data: [],
-                    tension: 0.25,
-                    fill: false,
-                    borderDash: [5, 5]
-                }
-            ]
+            datasets: []
         },
         options: {
             responsive: true,
+            maintainAspectRatio: false,
             plugins: {
                 tooltip: {
                     callbacks: {
@@ -251,23 +238,65 @@ function initChart() {
     });
 }
 
+function getLatestPrediction(topicPredictions) {
+    if (topicPredictions.length === 0) {
+        return null;
+    }
+
+    return topicPredictions.reduce((latest, prediction) => {
+        return prediction.createdAt > latest.createdAt ? prediction : latest;
+    });
+}
+
 function updateChart() {
     if (!distributionChart) return;
 
     const selectedTopic = document.getElementById("topicSelect").value;
+    const chartView = document.getElementById("chartView").value;
+
     const topicPredictions = predictions.filter(p => p.topic === selectedTopic);
     const marketDistribution = aggregateDistribution(topicPredictions);
 
-    distributionChart.data.datasets[0].data = marketDistribution ?? [];
+    const datasets = [];
 
-    try {
-        const draftPrediction = buildPredictionFromInputs();
-        const draftDistribution = distributionFromPrediction(draftPrediction);
-        distributionChart.data.datasets[1].data = draftDistribution;
-    } catch {
-        distributionChart.data.datasets[1].data = [];
+    if (marketDistribution) {
+        datasets.push({
+            label: "Market distribution",
+            data: marketDistribution,
+            tension: 0.25,
+            fill: false,
+            borderWidth: 3
+        });
     }
 
+    if (chartView === "latest") {
+        const latestPrediction = getLatestPrediction(topicPredictions);
+
+        if (latestPrediction) {
+            datasets.push({
+                label: "Latest prediction",
+                data: distributionFromPrediction(latestPrediction),
+                tension: 0.25,
+                fill: false,
+                borderDash: [5, 5],
+                borderWidth: 2
+            });
+        }
+    }
+
+    if (chartView === "all") {
+        topicPredictions.forEach((prediction, index) => {
+            datasets.push({
+                label: `Prediction ${index + 1}`,
+                data: distributionFromPrediction(prediction),
+                tension: 0.25,
+                fill: false,
+                borderWidth: 1
+            });
+        });
+    }
+
+    distributionChart.data.datasets = datasets;
     distributionChart.update();
 }
 
@@ -278,12 +307,9 @@ function init() {
     renderTopicsAndSelect();
     initChart();
     updateMarket();
-
+    
     document.getElementById("topicSelect").addEventListener("change", updateMarket);
-
-    ["lowerInput", "medianInput", "upperInput"].forEach(id => {
-        document.getElementById(id).addEventListener("input", updateChart);
-    });
+    document.getElementById("chartView").addEventListener("change", updateChart);
 }
 
 function submitPrediction() {
