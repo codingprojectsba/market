@@ -8,8 +8,28 @@ const topics = [
 
 let predictions = [];
 
+// Load from browser storage
+function loadPredictions() {
+    try {
+        const data = localStorage.getItem("predictions");
+        if (data) {
+            predictions = JSON.parse(data);
+        }
+    } catch (e) {
+        console.error("Error loading predictions:", e);
+        predictions = [];
+    }
+}
+
+// Save to browser storage
+function savePredictions() {
+    localStorage.setItem("predictions", JSON.stringify(predictions));
+}
+
 // Initialize UI
 function init() {
+    loadPredictions();
+    
     const topicDiv = document.getElementById("topics");
     const select = document.getElementById("topicSelect");
 
@@ -39,6 +59,8 @@ function submitPrediction() {
 
     predictions.push({ topic, prob, stake });
 
+    savePredictions();
+
     updateMarket();
 }
 
@@ -60,7 +82,7 @@ function updateMarket() {
         let marketProb = preds.length > 0 ? weightedSum / totalWeight : 0.5;
 
         const p = document.createElement("p");
-        p.textContent = `${t}: ${marketProb.toFixed(2)}`;
+        p.textContent = `${t}: ${marketProb.toFixed(2)} (n=${preds.length})`;
         marketDiv.appendChild(p);
     });
 }
