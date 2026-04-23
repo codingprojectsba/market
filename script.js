@@ -87,4 +87,13 @@ function updateMarket() {
     });
 }
 
+function resetMarket() {
+    const confirmReset = confirm("Are you sure you want to reset the market?");
+    if (!confirmReset) return;
+
+    predictions = [];
+    localStorage.removeItem("predictions");
+    updateMarket();
+}
+
 init();
