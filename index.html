@@ -61,7 +61,17 @@
 
 <section>
     <h2>Market Distribution</h2>
-    <canvas id="distributionChart"></canvas>
+
+    <label>Chart view:</label>
+    <select id="chartView">
+        <option value="market">Market only</option>
+        <option value="latest" selected>Market + latest prediction</option>
+        <option value="all">Market + all predictions</option>
+    </select>
+
+    <div class="chart-container">
+        <canvas id="distributionChart"></canvas>
+    </div>
 </section>
 
 <section>
