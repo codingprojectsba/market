@@ -2,20 +2,81 @@ const TOPICS_STORAGE_KEY = "topics";
 const PREDICTIONS_STORAGE_KEY = "distributionPredictions";
 
 const DEFAULT_TOPICS = [
-    "Compact Operators",
-    "Spectral Theorem",
-    "Fourier Series",
-    "Lagrange Multipliers",
-    "Heat Equation"
+    {
+        id: "compact-operators",
+        name: "Compact Operators",
+        type: "numeric",
+        min: 0,
+        max: 10,
+        unit: "score"
+    },
+    {
+        id: "spectral-theorem",
+        name: "Spectral Theorem",
+        type: "numeric",
+        min: 0,
+        max: 10,
+        unit: "score"
+    },
+    {
+        id: "fourier-series",
+        name: "Fourier Series",
+        type: "numeric",
+        min: 0,
+        max: 10,
+        unit: "score"
+    },
+    {
+        id: "lagrange-multipliers",
+        name: "Lagrange Multipliers",
+        type: "numeric",
+        min: 0,
+        max: 10,
+        unit: "score"
+    },
+    {
+        id: "heat-equation",
+        name: "Heat Equation",
+        type: "numeric",
+        min: 0,
+        max: 10,
+        unit: "score"
+    },
+    {
+        id: "pass-exam",
+        name: "Will I pass the exam?",
+        type: "binary"
+    }
 ];
 
-const X_MIN = 0;
-const X_MAX = 10;
 const GRID_SIZE = 201;
 
 let topics = [];
 let predictions = [];
 let distributionChart = null;
+
+function createIdFromName(name) {
+    return name
+        .toLowerCase()
+        .trim()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+}
+
+function normalizeTopic(topic) {
+    if (typeof topic === "string") {
+        return {
+            id: createIdFromName(topic),
+            name: topic,
+            type: "numeric",
+            min: 0,
+            max: 10,
+            unit: "score"
+        };
+    }
+
+    return topic;
+}
 
 function loadTopics() {
     try {
@@ -25,7 +86,9 @@ function loadTopics() {
             topics = [...DEFAULT_TOPICS];
         } else {
             const parsed = JSON.parse(data);
-            topics = Array.isArray(parsed) ? parsed : [...DEFAULT_TOPICS];
+            topics = Array.isArray(parsed)
+                ? parsed.map(normalizeTopic)
+                : [...DEFAULT_TOPICS];
         }
     } catch (e) {
         console.error("Error loading topics:", e);
@@ -47,15 +110,24 @@ function loadPredictions() {
     }
 }
 
+function getSelectedTopic() {
+    const selectedTopicId = document.getElementById("topicSelect").value;
+    return topics.find(topic => topic.id === selectedTopicId);
+}
+
+function getTopicById(topicId) {
+    return topics.find(topic => topic.id === topicId);
+}
+
 function savePredictions() {
     localStorage.setItem(PREDICTIONS_STORAGE_KEY, JSON.stringify(predictions));
 }
 
-function getGrid() {
+function getGrid(topic) {
     const xs = [];
 
     for (let i = 0; i < GRID_SIZE; i++) {
-        const x = X_MIN + (i / (GRID_SIZE - 1)) * (X_MAX - X_MIN);
+        const x = topic.min + (i / (GRID_SIZE - 1)) * (topic.max - topic.min);
         xs.push(x);
     }
 
@@ -76,14 +148,14 @@ function normalize(values) {
     return values.map(v => v / total);
 }
 
-function distributionFromPrediction(prediction) {
-    const xs = getGrid();
+function distributionFromPrediction(prediction, topic) {
+    const xs = getGrid(topic);
     const ys = xs.map(x => normalPDF(x, prediction.mu, prediction.sigma));
 
     return normalize(ys);
 }
 
-function aggregateDistribution(topicPredictions) {
+function aggregateDistribution(topicPredictions, topic) {
     if (topicPredictions.length === 0) {
         return null;
     }
@@ -92,7 +164,7 @@ function aggregateDistribution(topicPredictions) {
     let totalWeight = 0;
 
     topicPredictions.forEach(prediction => {
-        const dist = distributionFromPrediction(prediction);
+        const dist = distributionFromPrediction(prediction, topic);
         const weight = prediction.stake;
 
         totalWeight += weight;
@@ -109,8 +181,8 @@ function aggregateDistribution(topicPredictions) {
     return result.map(v => v / totalWeight);
 }
 
-function getQuantile(distribution, q) {
-    const xs = getGrid();
+function getQuantile(distribution, q, topic) {
+    const xs = getGrid(topic);
     let cumulative = 0;
 
     for (let i = 0; i < distribution.length; i++) {
@@ -124,8 +196,8 @@ function getQuantile(distribution, q) {
     return xs[xs.length - 1];
 }
 
-function getMean(distribution) {
-    const xs = getGrid();
+function getMean(distribution, topic) {
+    const xs = getGrid(topic);
 
     return distribution.reduce((sum, value, i) => {
         return sum + value * xs[i];
@@ -133,22 +205,26 @@ function getMean(distribution) {
 }
 
 function buildPredictionFromInputs() {
-    const topic = document.getElementById("topicSelect").value;
+    const topic = getSelectedTopic();
     const lower = parseFloat(document.getElementById("lowerInput").value);
     const median = parseFloat(document.getElementById("medianInput").value);
     const upper = parseFloat(document.getElementById("upperInput").value);
     const stake = parseFloat(document.getElementById("stakeInput").value);
-
+    
     if (!topic) {
         throw new Error("Please add or select a question first.");
+    }
+    
+    if (topic.type !== "numeric") {
+        throw new Error("Binary questions will be added in the next step.");
     }
 
     if ([lower, median, upper, stake].some(Number.isNaN)) {
         throw new Error("Please fill in lower 25%, median, upper 75%, and stake.");
     }
-
-    if (lower < X_MIN || upper > X_MAX || median < X_MIN || median > X_MAX) {
-        throw new Error(`Values must be between ${X_MIN} and ${X_MAX}.`);
+    
+    if (lower < topic.min || upper > topic.max || median < topic.min || median > topic.max) {
+        throw new Error(`Values must be between ${topic.min} and ${topic.max}.`);
     }
 
     if (!(lower < median && median < upper)) {
@@ -161,9 +237,10 @@ function buildPredictionFromInputs() {
 
     const mu = median;
     const sigma = Math.max((upper - lower) / 1.349, 0.05);
-
+    
     return {
-        topic,
+        topicId: topic.id,
+        type: "numeric",
         lower,
         median,
         upper,
@@ -180,22 +257,28 @@ function renderTopicsAndSelect() {
 
     topicDiv.innerHTML = "";
     select.innerHTML = "";
-
-    topics.forEach(t => {
+    
+    topics.forEach(topic => {
         const p = document.createElement("p");
-        p.textContent = t;
+        
+        const description =
+            topic.type === "numeric"
+                ? `${topic.name} (${topic.min} to ${topic.max} ${topic.unit})`
+                : `${topic.name} (Yes/No)`;
+
+        p.textContent = description;
 
         const btn = document.createElement("button");
         btn.textContent = "Delete";
         btn.style.marginLeft = "10px";
-        btn.onclick = () => deleteTopic(t);
+        btn.onclick = () => deleteTopic(topic.id);
 
         p.appendChild(btn);
         topicDiv.appendChild(p);
 
         const option = document.createElement("option");
-        option.value = t;
-        option.textContent = t;
+        option.value = topic.id;
+        option.textContent = topic.name;
         select.appendChild(option);
     });
 }
@@ -206,7 +289,7 @@ function initChart() {
     distributionChart = new Chart(ctx, {
         type: "line",
         data: {
-            labels: getGrid().map(x => x.toFixed(2)),
+            labels: [],
             datasets: []
         },
         
@@ -276,11 +359,24 @@ function getLatestPrediction(topicPredictions) {
 function updateChart() {
     if (!distributionChart) return;
 
-    const selectedTopic = document.getElementById("topicSelect").value;
+    const selectedTopic = getSelectedTopic();
     const chartView = document.getElementById("chartView").value;
 
-    const topicPredictions = predictions.filter(p => p.topic === selectedTopic);
-    const marketDistribution = aggregateDistribution(topicPredictions);
+    if (!selectedTopic) return;
+
+    if (selectedTopic.type === "binary") {
+        distributionChart.data.labels = ["Yes", "No"];
+        distributionChart.data.datasets = [];
+
+        distributionChart.options.scales.x.title.text = "Outcome";
+        distributionChart.options.scales.y.title.text = "Probability";
+
+        distributionChart.update();
+        return;
+    }
+
+    const topicPredictions = predictions.filter(p => p.topicId === selectedTopic.id);
+    const marketDistribution = aggregateDistribution(topicPredictions, selectedTopic);
 
     const datasets = [];
 
@@ -303,7 +399,7 @@ function updateChart() {
         if (latestPrediction) {
             datasets.push({
                 label: "Latest prediction",
-                data: distributionFromPrediction(latestPrediction),
+                data: distributionFromPrediction(latestPrediction, selectedTopic),
                 tension: 0.35,
                 fill: false,
                 borderDash: [6, 4],
@@ -318,7 +414,7 @@ function updateChart() {
         topicPredictions.forEach((prediction, index) => {
             datasets.push({
                 label: `Prediction ${index + 1}`,
-                data: distributionFromPrediction(prediction),
+                data: distributionFromPrediction(prediction, selectedTopic),
                 tension: 0.35,
                 fill: false,
                 borderWidth: 1.5,
@@ -329,7 +425,22 @@ function updateChart() {
     }
 
     distributionChart.data.datasets = datasets;
+
+    distributionChart.data.labels = getGrid(selectedTopic).map(x => x.toFixed(2));
+    distributionChart.options.scales.x.title.text = selectedTopic.unit
+        ? `Outcome (${selectedTopic.unit})`
+        : "Outcome";
+
+    distributionChart.options.scales.y.title.text = "Probability density";
+
     distributionChart.update();
+}
+
+function updateNewTopicForm() {
+    const type = document.getElementById("newTopicType").value;
+    const numericFields = document.getElementById("numericTopicFields");
+
+    numericFields.style.display = type === "numeric" ? "block" : "none";
 }
 
 function init() {
@@ -342,6 +453,9 @@ function init() {
     
     document.getElementById("topicSelect").addEventListener("change", updateMarket);
     document.getElementById("chartView").addEventListener("change", updateChart);
+    document.getElementById("newTopicType").addEventListener("change", updateNewTopicForm);
+
+    updateNewTopicForm();
 }
 
 function submitPrediction() {
@@ -370,31 +484,37 @@ function updateMarket() {
 
     marketDiv.innerHTML = "";
 
-    topics.forEach(t => {
-        const topicPredictions = predictions.filter(p => p.topic === t);
-        const distribution = aggregateDistribution(topicPredictions);
-
+    topics.forEach(topic => {
+        const topicPredictions = predictions.filter(p => p.topicId === topic.id);
         const p = document.createElement("p");
 
-        if (!distribution) {
-            p.textContent = `${t}: no predictions yet`;
-        } else {
-            const mean = getMean(distribution);
-            const q25 = getQuantile(distribution, 0.25);
-            const q50 = getQuantile(distribution, 0.50);
-            const q75 = getQuantile(distribution, 0.75);
-
-            p.textContent =
-                `${t}: mean=${mean.toFixed(2)}, ` +
-                `lower 25%=${q25.toFixed(2)}, ` +
-                `median=${q50.toFixed(2)}, ` +
-                `upper 75%=${q75.toFixed(2)} ` +
-                `(n=${topicPredictions.length})`;
+        if (topic.type === "binary") {
+            p.textContent = `${topic.name}: binary market coming next`;
+            marketDiv.appendChild(p);
+            return;
         }
 
+        const distribution = aggregateDistribution(topicPredictions, topic);
+
+        if (!distribution) {
+            p.textContent = `${topic.name}: no predictions yet`;
+        } else {
+            const mean = getMean(distribution, topic);
+            const q25 = getQuantile(distribution, 0.25, topic);
+            const q50 = getQuantile(distribution, 0.50, topic);
+            const q75 = getQuantile(distribution, 0.75, topic);
+
+            const unit = topic.unit ? ` ${topic.unit}` : "";
+
+            p.textContent =
+                `${topic.name}: mean=${mean.toFixed(2)}${unit}, ` +
+                `lower 25%=${q25.toFixed(2)}${unit}, ` +
+                `median=${q50.toFixed(2)}${unit}, ` +
+                `upper 75%=${q75.toFixed(2)}${unit} ` +
+                `(n=${topicPredictions.length})`;
+        }
         marketDiv.appendChild(p);
     });
-
     updateChart();
 }
 
@@ -419,30 +539,78 @@ function resetAll() {
 }
 
 function addTopic() {
-    const input = document.getElementById("newTopic");
-    const value = input.value.trim();
+    const nameInput = document.getElementById("newTopic");
+    const typeInput = document.getElementById("newTopicType");
+    const minInput = document.getElementById("newTopicMin");
+    const maxInput = document.getElementById("newTopicMax");
+    const unitInput = document.getElementById("newTopicUnit");
 
-    if (!value) return;
+    const name = nameInput.value.trim();
+    const type = typeInput.value;
 
-    if (topics.includes(value)) {
-        alert("Question already exists");
+    if (!name) {
+        alert("Please enter a question name.");
         return;
     }
 
-    topics.push(value);
+    if (topics.some(topic => topic.name.toLowerCase() === name.toLowerCase())) {
+        alert("Question already exists.");
+        return;
+    }
+
+    let topic;
+
+    if (type === "numeric") {
+        const min = parseFloat(minInput.value);
+        const max = parseFloat(maxInput.value);
+        const unit = unitInput.value.trim() || "units";
+
+        if (Number.isNaN(min) || Number.isNaN(max)) {
+            alert("Please enter valid minimum and maximum values.");
+            return;
+        }
+
+        if (!(min < max)) {
+            alert("Minimum value must be less than maximum value.");
+            return;
+        }
+
+        topic = {
+            id: createIdFromName(name),
+            name,
+            type: "numeric",
+            min,
+            max,
+            unit
+        };
+    } else {
+        topic = {
+            id: createIdFromName(name),
+            name,
+            type: "binary"
+        };
+    }
+
+    topics.push(topic);
     saveTopics();
 
     renderTopicsAndSelect();
     updateMarket();
 
-    input.value = "";
+    nameInput.value = "";
+    typeInput.value = "numeric";
+    minInput.value = "0";
+    maxInput.value = "10";
+    unitInput.value = "score";
+
+    updateNewTopicForm();
 }
 
-function deleteTopic(topic) {
-    topics = topics.filter(t => t !== topic);
+function deleteTopic(topicId) {
+    topics = topics.filter(topic => topic.id !== topicId);
     saveTopics();
 
-    predictions = predictions.filter(p => p.topic !== topic);
+    predictions = predictions.filter(prediction => prediction.topicId !== topicId);
     savePredictions();
 
     renderTopicsAndSelect();
